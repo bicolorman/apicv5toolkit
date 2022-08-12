@@ -1,0 +1,113 @@
+# Pipeline Monitoreo Backups API Connect
+# https://grupobancolombia.visualstudio.com/Vicepresidencia%20Servicios%20de%20Tecnolog%C3%ADa/_git/Cloud_nu0156001_apiconnect?path=%2Foperations%2Fmonitoring%2Fbackup-monitoring.yaml
+
+variables:
+  - name: monPath
+    value: '$(Build.Repository.LocalPath)/operations/notification'
+  - name: System.Debug
+    value: true
+  - name: mail-rcpt
+    value: cmsuare@bancolombia.com.co
+  - name: mail-rcpt-add
+    value: garrick.oscar@gmail.com
+  - group: nu0156001-apic10-credentials-notification
+  - group: nu0156001-apic10-credentials-extension-admin-dev
+  - name: subject
+    value: Notification API Connect
+  - name: fromText
+    value: API Bot Notification
+  - name: messageone
+    value: API Connect certificate monitoring - alert
+  - name: messagetwo
+    value: algun texto de prueba con color en html
+  - name: messagehtml
+    value: <p style="color:red">$(messageone)</p> <p style="color:blue">$(messagetwo)</p>
+
+  
+trigger:
+- none
+
+pool:
+  vmImage: "ubuntu-latest"
+
+stages:
+
+- stage: Notifications
+  dependsOn: []
+  jobs:
+  - job: Notification
+    pool: Release-cloud
+    displayName: 'Notification '
+    steps:
+            - task: Kubernetes@1
+              displayName: 'kubectl login'
+              inputs:
+                connectionType: 'Kubernetes Service Connection'
+                kubernetesServiceEndpoint: 'eks-admin-integracion-pdn'
+                namespace: apiconnect-pdn
+                command: login
+            - task: API Connect Admin Manager V10@1
+              displayName:  Lists Trustores Entries APIC10
+              name: ProduceVar
+              inputs:
+                manage: 'manageResources'
+                operationManageResources: 'adminTls'
+                operationTLS: 'listsTruststoresEntries'
+                organization: private-bancolombia
+                title: apic-tls-ts
+            - bash: |
+                    echo "##[command]Encoded"
+                    enc=$(base64 $(monPath)/certificate.txt)
+                    htmlbody=$(base64 $(monPath)/test.html)
+                    enc2=$(echo $enc | tr ' ' " ")
+                    htmlbody2=$(echo $htmlbody | tr ' ' " ")
+                    echo "##[command] tr result enc"
+                    echo $enc2
+                    echo "##[command] tr result htmlbody"
+                    echo $htmlbody2
+                    echo "##[command]  messagehtml3"
+                    echo "$(messagehtml)"
+                    mkdir -p $(Pipeline.Workspace)/mail
+                    echo "$(messagehtml)" > $(Pipeline.Workspace)/mail/MAIL
+                    messagehtml=$(base64 $(Pipeline.Workspace)/mail/MAIL)
+                    messagehtml2=$(echo $messagehtml | tr ' ' " ")
+                    echo "##[command] messagehtml base64"
+                    echo $messagehtml2
+                    echo "##[command] set variable"
+                    echo "##vso[task.setvariable variable=archivo]$enc2"
+                    echo "##[command] set variable"
+                    echo "##vso[task.setvariable variable=bodyhtml]$htmlbody2"
+                    echo "##[command] set variable"
+                    echo "##vso[task.setvariable variable=body2html]$messagehtml2"
+                    
+              displayName: 'Variable'
+            - bash: |
+                    echo -e "######  Operation Notification  ######\n"
+                    echo $(texto)
+                    #echo  'linuxhint.com' | base64
+                    echo "##[section]Discover Curl Management"
+                    mgmt=$(kubectl get pods -n apiconnect-pdn | awk '{print $1}' | grep management-apim-* | head -1)
+                    echo $mgmt
+                   
+                    echo "##[command]curl --version"
+                    kubectl exec $mgmt -n apiconnect-pdn -- bash -c "curl --version"
+                    
+                    echo "##[command]echo -e Notification Body > notification.txt"
+                    kubectl exec $mgmt -n apiconnect-pdn -- bash -c "echo -e \"From: $(fromText) <$(mail-from)> \\n\"Subject: $(subject)\" \\nContent-Type: multipart/mixed; boundary=\"MULTIPART-MIXED-BOUNDARY\"
+                    \\n--MULTIPART-MIXED-BOUNDARY \\nContent-Type: text/html; charset=\"utf-8\" \\nContent-Transfer-Encoding: base64 \\nContent-Disposition: inline;
+                    \\n$(bodyhtml)
+                    \\n--MULTIPART-MIXED-BOUNDARY \\nContent-Type: text/html; charset=\"utf-8\" \\nContent-Transfer-Encoding: base64 \\nContent-Disposition: inline;
+                    \\n$(body2html)
+                    \\n--MULTIPART-MIXED-BOUNDARY \\nContent-Type: text/plain \\nContent-Transfer-Encoding: base64 \\nContent-Disposition: inline; filename=certificate.txt 
+                    \\n$(archivo)
+                    \\n--MULTIPART-MIXED-BOUNDARY--
+                    \\n\" > notification.txt"
+
+                    echo "##[command]cat notification.txt"
+                    kubectl exec $mgmt -n apiconnect-pdn -- bash -c "cat notification.txt"
+                    echo "##[command]curl --connect-timeout 15 -v  $(smtp-server) "
+                    echo "##[command]--user $(user) "
+                    kubectl exec $mgmt -n apiconnect-pdn -- bash -c "curl --connect-timeout 15 -v  $(smtp-server) --user $(user) --mail-from $(mail-from)  --mail-rcpt $(mail-rcpt) --mail-rcpt $(mail-rcpt-add)  -T notification.txt "
+                    
+                    
+              displayName: 'Operation Notification'
