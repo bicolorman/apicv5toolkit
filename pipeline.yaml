@@ -2,8 +2,6 @@
 # https://grupobancolombia.visualstudio.com/Vicepresidencia%20Servicios%20de%20Tecnolog%C3%ADa/_git/Cloud_nu0156001_apiconnect?path=%2Foperations%2Fmonitoring%2Fbackup-monitoring.yaml
 
 variables:
-  - name: monPath
-    value: '$(Build.Repository.LocalPath)/operations/notification'
   - name: System.Debug
     value: true
   - name: mail-rcpt
